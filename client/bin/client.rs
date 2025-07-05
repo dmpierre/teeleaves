@@ -63,6 +63,5 @@ async fn main() {
         .json(&order)
         .send()
         .await;
-    assert!(res.is_ok());
-    println!("{:?}", res.unwrap());
+    println!("{:?}", res);
 }
