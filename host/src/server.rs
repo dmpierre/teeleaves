@@ -40,11 +40,11 @@ pub struct ServerArgs {
     pub enclave_cid: u32,
 
     /// The number of cores to use for the enclave.
-    #[clap(long, default_value = "12")]
+    #[clap(long, default_value = "4")]
     pub enclave_cores: u32,
 
     /// The memory to use for the enclave.
-    #[clap(short, long, default_value = "9000")]
+    #[clap(short, long, default_value = "8000")]
     pub enclave_memory: u32,
 
     /// Run the enclave in debug mode.
