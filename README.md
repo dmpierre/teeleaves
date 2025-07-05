@@ -7,8 +7,8 @@
 TEELeaves lets you run a prediction market orderbook within a Trusted Execution Environment (TEE). It runs with:
 
 1. An open source repo
-2. Verifiable execution - Schnorr signatures over ed2519.
-3. Encrypted orders - using ECIES (ed2519 + aes256).
+2. Verifiable execution - Schnorr signatures over ed25519 + nitro enclave attestation verification
+3. Encrypted orders - using ECIES (ed25519 + aes256).
 
 ## Usage
 
