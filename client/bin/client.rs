@@ -2,15 +2,21 @@ use std::time::Instant;
 
 use aes_gcm_siv::{aead::Aead, Aes256GcmSiv, KeyInit, Nonce};
 use alloy_primitives::{Address, Bytes};
-use ark_curve25519::{EdwardsProjective, Fr};
-use ark_ec::PrimeGroup;
+use ark_crypto_primitives::signature::{
+    schnorr::{PublicKey, Schnorr, Signature},
+    SignatureScheme,
+};
+use ark_curve25519::{EdwardsAffine, EdwardsProjective, Fr};
+use ark_ec::{AffineRepr, CurveGroup, PrimeGroup};
 use ark_ff::UniformRand;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::rand::{thread_rng, Rng};
+use aws_nitro_enclaves_nsm_api::api::AttestationDoc;
 use clients::blob::EVMBlobOrder;
 use clobs::Side;
 use reqwest::Client;
 use sha3::{Digest, Sha3_256};
+use teeleaves_common::SignedResult;
 
 pub fn get_order_amounts(side: Side, size: u128, price: u8) -> (u128, u128) {
     match side {
@@ -65,11 +71,11 @@ async fn main() {
 
     let rng = &mut thread_rng();
 
-    let sk = Fr::rand(rng);
-    let pk = EdwardsProjective::generator() * sk;
+    let dk = Fr::rand(rng);
+    let ek = EdwardsProjective::generator() * dk;
 
-    let enclave_pk = client
-        .get("http://localhost:8080/pk")
+    let enclave_ek = client
+        .get("http://localhost:8080/ek")
         .send()
         .await
         .expect("Failed to get public key")
@@ -77,9 +83,20 @@ async fn main() {
         .await
         .expect("Failed to read response bytes");
 
-    let enclave_pk = EdwardsProjective::deserialize_compressed(&enclave_pk[..]).unwrap();
+    let enclave_ek = EdwardsProjective::deserialize_compressed(&enclave_ek[..]).unwrap();
 
-    let dh = enclave_pk * sk;
+    let enclave_vk = client
+        .get("http://localhost:8080/vk")
+        .send()
+        .await
+        .expect("Failed to get public key")
+        .bytes()
+        .await
+        .expect("Failed to read response bytes");
+
+    let enclave_vk = EdwardsProjective::deserialize_compressed(&enclave_vk[..]).unwrap();
+
+    let dh = enclave_ek * dk;
     let mut v = vec![];
     dh.serialize_compressed(&mut v).unwrap();
 
@@ -94,18 +111,55 @@ async fn main() {
     let ciphertext = cipher.encrypt(nonce, order.as_ref()).unwrap();
 
     let start = Instant::now();
-    let res = client
+    let SignedResult {
+        order_state,
+        taker_fill_amount,
+        sig,
+    } = client
         .post("http://localhost:8080/execute")
         .json(&teeleaves_common::Ciphertext {
             ciphertext: ciphertext.to_vec(),
             nonce: nonce.to_vec(),
-            sender_pk: {
+            sender_ek: {
                 let mut v = vec![];
-                pk.serialize_compressed(&mut v).unwrap();
+                ek.serialize_compressed(&mut v).unwrap();
                 v
             },
         })
         .send()
-        .await;
-    println!("{:?}", res);
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    println!("{:?} {:?} {:?}", order_state, taker_fill_amount, sig);
+
+    let mut pp = Schnorr::<EdwardsProjective, Sha3_256>::setup(rng).unwrap();
+    pp.generator = EdwardsAffine::generator();
+    pp.salt = [0u8; 32];
+
+    assert!(Schnorr::verify(
+        &pp,
+        &enclave_vk.into_affine(),
+        &[&[order_state as u8][..], &taker_fill_amount.to_le_bytes()].concat(),
+        {
+            let sig = <[Fr; 2]>::deserialize_compressed(&sig[..]).unwrap();
+            &Signature {
+                prover_response: sig[0],
+                verifier_challenge: sig[1],
+            }
+        },
+    )
+    .unwrap());
+
+    let attestation = client
+        .get("http://localhost:8080/attestation")
+        .send()
+        .await
+        .expect("Failed to get attestation")
+        .bytes()
+        .await
+        .expect("Failed to read response bytes");
+    println!("{:?}", AttestationDoc::from_binary(&attestation).unwrap());
 }

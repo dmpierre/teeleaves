@@ -1,17 +1,25 @@
 use crate::EnclaveArgs;
 use aes_gcm_siv::{aead::Aead, Aes256GcmSiv, KeyInit, Nonce};
 use alloy_primitives::Signature;
+use ark_crypto_primitives::signature::{
+    schnorr::{Parameters, Schnorr, SecretKey},
+    SignatureScheme,
+};
 use ark_curve25519::{EdwardsAffine, EdwardsProjective, Fr};
-use ark_ec::PrimeGroup;
+use ark_ec::{AffineRepr, PrimeGroup};
 use ark_ff::UniformRand;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::rand::thread_rng;
+use aws_nitro_enclaves_nsm_api::{
+    api::{Request, Response},
+    driver::{nsm_exit, nsm_init, nsm_process_request},
+};
 use clients::blob::EVMBlobOrder;
 use clobs::{book::Book, order::Order, OrderState, OrderType, Side, SignatureType};
 use parking_lot::Mutex;
 use sha3::{Digest, Sha3_256};
 use std::{sync::Arc, time::Instant};
-use teeleaves_common::{Ciphertext, EnclaveRequest, EnclaveResponse, VsockStream};
+use teeleaves_common::{Ciphertext, EnclaveRequest, EnclaveResponse, SignedResult, VsockStream};
 use tokio_vsock::{VsockAddr, VsockListener, VsockStream as VsockStreamRaw, VMADDR_CID_ANY};
 /// Macro for printing debug messages.
 ///
@@ -45,12 +53,14 @@ pub struct Server {
     execution_guard: Mutex<()>,
     /// The order book
     book: Arc<Mutex<Book>>,
+    dk: Fr,
     sk: Fr,
 }
 
 impl Server {
     pub fn new(args: EnclaveArgs) -> Self {
         let rng = &mut thread_rng();
+        let dk = Fr::rand(rng);
         let sk = Fr::rand(rng);
         //debug_print!(
         //    "Server started with public key: {:?}",
@@ -64,6 +74,7 @@ impl Server {
             args,
             execution_guard: Mutex::new(()),
             book: Arc::new(Mutex::new(Book::new())),
+            dk,
             sk,
         }
     }
@@ -142,26 +153,39 @@ impl Server {
                 stream.send(EnclaveResponse::Ack).await.unwrap();
             }
             // TODO: implement enclave public key
-            EnclaveRequest::GetPublicKey => {
-                let pk = EdwardsProjective::generator() * self.sk;
+            EnclaveRequest::GetEncryptionKey => {
+                let ek = EdwardsProjective::generator() * self.dk;
                 let mut v = vec![];
-                pk.serialize_compressed(&mut v).unwrap();
+                ek.serialize_compressed(&mut v).unwrap();
 
-                stream.send(EnclaveResponse::PublicKey(v)).await.unwrap();
+                stream
+                    .send(EnclaveResponse::EncryptionKey(v))
+                    .await
+                    .unwrap();
+            }
+            EnclaveRequest::GetVerificationKey => {
+                let vk = EdwardsProjective::generator() * self.sk;
+                let mut v = vec![];
+                vk.serialize_compressed(&mut v).unwrap();
+
+                stream
+                    .send(EnclaveResponse::VerificationKey(v))
+                    .await
+                    .unwrap();
             }
             EnclaveRequest::Decrypt(ciphertext) => {
                 match tokio::task::spawn_blocking(move || {
                     let Ciphertext {
                         ciphertext,
                         nonce,
-                        sender_pk,
+                        sender_ek,
                     } = ciphertext;
                     // Take the guard to ensure only one execution can be running at a time.
                     let _guard = self.execution_guard.lock();
 
-                    let sender_pk =
-                        EdwardsProjective::deserialize_compressed(&sender_pk[..]).unwrap();
-                    let dh = sender_pk * self.sk;
+                    let sender_ek =
+                        EdwardsProjective::deserialize_compressed(&sender_ek[..]).unwrap();
+                    let dh = sender_ek * self.dk;
                     let mut v = vec![];
                     dh.serialize_compressed(&mut v).unwrap();
 
@@ -182,11 +206,29 @@ impl Server {
                     // let (_, vk) = self.prover.setup(&program);
                     debug_print!("Matching complete");
 
-                    // TODO: sign this
-                    EnclaveResponse::Result {
+                    let rng = &mut thread_rng();
+
+                    let mut pp = Schnorr::<EdwardsProjective, Sha3_256>::setup(rng).unwrap();
+                    pp.generator = EdwardsAffine::generator();
+                    pp.salt = [0u8; 32];
+
+                    let sig = Schnorr::sign(
+                        &pp,
+                        &SecretKey(self.sk),
+                        &[&[order_state as u8][..], &taker_fill_amount.to_le_bytes()].concat(),
+                        rng,
+                    )
+                    .unwrap();
+                    let mut v = vec![];
+                    [sig.prover_response, sig.verifier_challenge]
+                        .serialize_compressed(&mut v)
+                        .unwrap();
+
+                    EnclaveResponse::Result(SignedResult {
                         order_state,
                         taker_fill_amount,
-                    }
+                        sig: v,
+                    })
                 })
                 .await
                 {
@@ -201,6 +243,37 @@ impl Server {
                             )))
                             .await
                             .unwrap();
+                    }
+                }
+            }
+            EnclaveRequest::GetAttestation => {
+                let fd = nsm_init();
+
+                assert!(fd >= 0);
+
+                let vk = EdwardsProjective::generator() * self.sk;
+                let mut v = vec![];
+                vk.serialize_compressed(&mut v).unwrap();
+
+                let request = Request::Attestation {
+                    user_data: Some((42u64).to_le_bytes().to_vec().into()),
+                    nonce: None,
+                    public_key: Some(v.into()),
+                };
+
+                let response = nsm_process_request(fd, request);
+
+                nsm_exit(fd);
+
+                match response {
+                    Response::Attestation { document, .. } => {
+                        stream
+                            .send(EnclaveResponse::Attestation(document))
+                            .await
+                            .unwrap();
+                    }
+                    _ => {
+                        panic!();
                     }
                 }
             }

@@ -17,7 +17,7 @@ pub const ENCLAVE_CID: u32 = 42;
 pub struct Ciphertext {
     pub ciphertext: Vec<u8>,
     pub nonce: Vec<u8>,
-    pub sender_pk: Vec<u8>,
+    pub sender_ek: Vec<u8>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -25,7 +25,9 @@ pub enum EnclaveRequest {
     /// Print from the enclave to the debug console.
     Print(String),
     /// Request the enclave's public key.
-    GetPublicKey,
+    GetEncryptionKey,
+    GetVerificationKey,
+    GetAttestation,
     Decrypt(Ciphertext),
     /// An execution request, sent from the host to the enclave.
     Execute {
@@ -36,12 +38,18 @@ pub enum EnclaveRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct SignedResult {
+    pub order_state: OrderState,
+    pub taker_fill_amount: u128,
+    pub sig: Vec<u8>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub enum EnclaveResponse {
-    PublicKey(Vec<u8>),
-    Result {
-        order_state: OrderState,
-        taker_fill_amount: u128,
-    },
+    EncryptionKey(Vec<u8>),
+    VerificationKey(Vec<u8>),
+    Attestation(Vec<u8>),
+    Result(SignedResult),
     /// The receiver of this variant should print this message to stdout.
     Error(String),
     /// Indicate to the host that the enclave has received the message.
@@ -52,7 +60,9 @@ impl EnclaveRequest {
     pub fn type_of(&self) -> &'static str {
         match self {
             EnclaveRequest::CloseSession => "CloseSession",
-            EnclaveRequest::GetPublicKey => "GetPublicKey",
+            EnclaveRequest::GetEncryptionKey => "GetEncryptionKey",
+            EnclaveRequest::GetVerificationKey => "GetVerificationKey",
+            EnclaveRequest::GetAttestation => "GetAttestation",
             EnclaveRequest::Print(_) => "Print",
             EnclaveRequest::Decrypt(..) => "decrypt",
             EnclaveRequest::Execute { .. } => "Execute",
@@ -63,7 +73,9 @@ impl EnclaveRequest {
 impl EnclaveResponse {
     pub fn type_of(&self) -> &'static str {
         match self {
-            EnclaveResponse::PublicKey(_) => "PublicKey",
+            EnclaveResponse::EncryptionKey(_) => "EncryptionKey",
+            EnclaveResponse::VerificationKey(_) => "VerificationKey",
+            EnclaveResponse::Attestation(_) => "Attestation",
             EnclaveResponse::Result { .. } => "Result",
             EnclaveResponse::Error(_) => "Error",
             EnclaveResponse::Ack => "Ack",

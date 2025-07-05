@@ -8,7 +8,7 @@ use axum::{
 use clap::Parser;
 use clients::blob::EVMBlobOrder;
 use std::sync::Arc;
-use teeleaves_common::{Ciphertext, EnclaveRequest, EnclaveResponse};
+use teeleaves_common::{Ciphertext, EnclaveRequest, EnclaveResponse, SignedResult};
 use teeleaves_host::server::{self, Server};
 use teeleaves_host::{server::ServerArgs, HostStream};
 use tokio::net::TcpListener;
@@ -22,7 +22,9 @@ async fn main() {
 
     let server = Server::new(&args);
     let app = Router::new()
-        .route("/pk", get(get_pk))
+        .route("/ek", get(get_ek))
+        .route("/vk", get(get_vk))
+        .route("/attestation", get(get_attestation))
         .route("/execute", post(execute).layer(DefaultBodyLimit::disable()))
         .with_state(server);
 
@@ -48,19 +50,53 @@ async fn main() {
     }
 }
 
-async fn get_pk(State(server): State<Arc<Server>>) -> Vec<u8> {
+async fn get_ek(State(server): State<Arc<Server>>) -> Vec<u8> {
     // Open a connection to the enclave.
     let mut stream = HostStream::new(server.cid, teeleaves_common::ENCLAVE_PORT)
         .await
         .unwrap();
 
     // Send the request to the enclave.
-    stream.send(EnclaveRequest::GetPublicKey).await.unwrap();
+    stream.send(EnclaveRequest::GetEncryptionKey).await.unwrap();
 
     let response = stream.recv().await.unwrap();
 
     match response {
-        EnclaveResponse::PublicKey(encoded_point) => encoded_point,
+        EnclaveResponse::EncryptionKey(encoded_point) => encoded_point,
+        _ => panic!(),
+    }
+}
+
+async fn get_vk(State(server): State<Arc<Server>>) -> Vec<u8> {
+    // Open a connection to the enclave.
+    let mut stream = HostStream::new(server.cid, teeleaves_common::ENCLAVE_PORT)
+        .await
+        .unwrap();
+
+    // Send the request to the enclave.
+    stream.send(EnclaveRequest::GetVerificationKey).await.unwrap();
+
+    let response = stream.recv().await.unwrap();
+
+    match response {
+        EnclaveResponse::VerificationKey(encoded_point) => encoded_point,
+        _ => panic!(),
+    }
+}
+
+async fn get_attestation(State(server): State<Arc<Server>>) -> Vec<u8> {
+    // Open a connection to the enclave.
+    let mut stream = HostStream::new(server.cid, teeleaves_common::ENCLAVE_PORT)
+        .await
+        .unwrap();
+
+    // Send the request to the enclave.
+    stream.send(EnclaveRequest::GetAttestation).await.unwrap();
+
+    let response = stream.recv().await.unwrap();
+
+    match response {
+        EnclaveResponse::Attestation(attestation) => attestation,
         _ => panic!(),
     }
 }
@@ -71,7 +107,7 @@ async fn get_pk(State(server): State<Arc<Server>>) -> Vec<u8> {
 async fn execute(
     State(server): State<Arc<Server>>,
     payload: Result<Json<Ciphertext>, JsonRejection>,
-) -> Result<StatusCode, ServerError> {
+) -> Result<Json<SignedResult>, ServerError> {
     let ciphertext = payload.unwrap().0;
 
     tracing::info!("Got execution request");
@@ -125,13 +161,8 @@ async fn execute(
     tracing::debug!("Successfully received response from enclave");
 
     match response {
-        EnclaveResponse::Result {
-            // TODO: log that?
-            order_state,
-            taker_fill_amount,
-        } => {
-            println!("{:?} {}", order_state, taker_fill_amount);
-            return Ok(StatusCode::OK);
+        EnclaveResponse::Result(result) => {
+            return Ok(Json(result));
         }
         _ => panic!(),
     }
