@@ -100,7 +100,8 @@ async fn main() {
     let mut v = vec![];
     dh.serialize_compressed(&mut v).unwrap();
 
-    let ciphertexts = (0..100)
+    let n_orders = 500;
+    let ciphertexts = (0..n_orders)
         .map(|_| {
             let order = generate_blob_order(50, 1);
             let order = serde_json::to_string(&order).unwrap().into_bytes();
@@ -135,8 +136,12 @@ async fn main() {
         results.push(res);
     }
 
-    let end = start.elapsed();
-    println!("{:?}", end);
+    let duration = start.elapsed().as_secs_f64();
+    println!(
+        "[CLIENT] Server + enclave processed {n_orders} orders in {:.2} ({:.2} order/s)",
+        duration,
+        n_orders as f64 / duration
+    );
 
     let mut pp = Schnorr::<EdwardsProjective, Sha3_256>::setup(rng).unwrap();
     pp.generator = EdwardsAffine::generator();
@@ -148,7 +153,6 @@ async fn main() {
             taker_fill_amount,
             sig,
         } = res.unwrap().json().await.unwrap();
-        println!("{:?} {}", order_state, taker_fill_amount);
         assert!(Schnorr::verify(
             &pp,
             &enclave_vk.into_affine(),
@@ -171,5 +175,11 @@ async fn main() {
         .bytes()
         .await
         .expect("Failed to read response bytes");
-    println!("{:?}", attestation_doc_validation::validate_and_parse_attestation_doc(&attestation).unwrap());
+
+    let res_attestation =
+        attestation_doc_validation::validate_and_parse_attestation_doc(&attestation);
+    println!(
+        "[CLIENT] Enclave attestation verified as {}",
+        res_attestation.is_ok()
+    );
 }
