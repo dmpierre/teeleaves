@@ -67,6 +67,15 @@ pub fn generate_blob_order(mid_price: u8, token_id: u128) -> EVMBlobOrder {
 /// A simple Virtio socket server that uses Hyper to response to requests.
 #[tokio::main]
 async fn main() {
+    let cool_ascii = r#"
+
+   ■  ▗▞▀▚▖▗▞▀▚▖█ ▗▞▀▚▖▗▞▀▜▌▄   ▄ ▗▞▀▚▖ ▄▄▄ 
+▗▄▟▙▄▖▐▛▀▀▘▐▛▀▀▘█ ▐▛▀▀▘▝▚▄▟▌█   █ ▐▛▀▀▘▀▄▄  
+  ▐▌  ▝▚▄▄▖▝▚▄▄▖█ ▝▚▄▄▖      ▀▄▀  ▝▚▄▄▖▄▄▄▀ 
+  ▐▌            █                           
+  ▐▌                                                                                    
+"#;
+    println!("{cool_ascii}");
     let client = Client::new();
 
     let rng = &mut thread_rng();
