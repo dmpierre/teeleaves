@@ -59,7 +59,7 @@ async fn main() {
     let start = Instant::now();
     let order = generate_blob_order(50, 1);
     let res = client
-        .post("http://localhost:3000/order")
+        .post("http://localhost:8080/execute")
         .json(&order)
         .send()
         .await;
