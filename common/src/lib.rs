@@ -14,32 +14,31 @@ pub const ENCLAVE_PORT: u16 = 5005;
 pub const ENCLAVE_CID: u32 = 42;
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct Ciphertext {
+    pub ciphertext: Vec<u8>,
+    pub nonce: Vec<u8>,
+    pub sender_pk: Vec<u8>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub enum EnclaveRequest {
     /// Print from the enclave to the debug console.
     Print(String),
     /// Request the enclave's public key.
     GetPublicKey,
-    /// Request the enclave's signing key for crash tolerane.
-    GetEncryptedSigningKey,
-    /// Request the enclave to attest to the signing key.
-    AttestSigningKey,
+    Decrypt(Ciphertext),
     /// An execution request, sent from the host to the enclave.
-    Execute { order: String },
-    /// Set the enclave's signing key.
-    SetSigningKey(Vec<u8>),
+    Execute {
+        order: String,
+    },
     /// Close the session, the enclave will drop the connection after this request.
     CloseSession,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum EnclaveResponse {
-    PublicKey(k256::EncodedPoint),
-    /// The enclave's signing key, encrypted with the host's public key.
-    EncryptedSigningKey(Vec<u8>),
-    /// An attestation document with the public key field set.
-    SigningKeyAttestation(Vec<u8>),
-    /// The result of an execution, sent from the enclave to the host.
-    SignedPublicValues {
+    PublicKey(Vec<u8>),
+    Result {
         order_state: OrderState,
         taker_fill_amount: u128,
     },
@@ -55,10 +54,8 @@ impl EnclaveRequest {
             EnclaveRequest::CloseSession => "CloseSession",
             EnclaveRequest::GetPublicKey => "GetPublicKey",
             EnclaveRequest::Print(_) => "Print",
-            EnclaveRequest::GetEncryptedSigningKey => "GetEncryptedSigningKey",
+            EnclaveRequest::Decrypt(..) => "decrypt",
             EnclaveRequest::Execute { .. } => "Execute",
-            EnclaveRequest::SetSigningKey(_) => "SetSigningKey",
-            EnclaveRequest::AttestSigningKey => "AttestSigningKey",
         }
     }
 }
@@ -67,9 +64,7 @@ impl EnclaveResponse {
     pub fn type_of(&self) -> &'static str {
         match self {
             EnclaveResponse::PublicKey(_) => "PublicKey",
-            EnclaveResponse::EncryptedSigningKey(_) => "EncryptedSigningKey",
-            EnclaveResponse::SigningKeyAttestation(_) => "SigningKeyAttestation",
-            EnclaveResponse::SignedPublicValues { .. } => "SignedPublicValues",
+            EnclaveResponse::Result { .. } => "Result",
             EnclaveResponse::Error(_) => "Error",
             EnclaveResponse::Ack => "Ack",
         }

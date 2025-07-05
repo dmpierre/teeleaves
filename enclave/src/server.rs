@@ -1,10 +1,17 @@
 use crate::EnclaveArgs;
+use aes_gcm_siv::{aead::Aead, Aes256GcmSiv, KeyInit, Nonce};
 use alloy_primitives::Signature;
+use ark_curve25519::{EdwardsAffine, EdwardsProjective, Fr};
+use ark_ec::PrimeGroup;
+use ark_ff::UniformRand;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_std::rand::thread_rng;
 use clients::blob::EVMBlobOrder;
 use clobs::{book::Book, order::Order, OrderState, OrderType, Side, SignatureType};
 use parking_lot::Mutex;
+use sha3::{Digest, Sha3_256};
 use std::{sync::Arc, time::Instant};
-use teeleaves_common::{EnclaveRequest, EnclaveResponse, VsockStream};
+use teeleaves_common::{Ciphertext, EnclaveRequest, EnclaveResponse, VsockStream};
 use tokio_vsock::{VsockAddr, VsockListener, VsockStream as VsockStreamRaw, VMADDR_CID_ANY};
 /// Macro for printing debug messages.
 ///
@@ -38,12 +45,13 @@ pub struct Server {
     execution_guard: Mutex<()>,
     /// The order book
     book: Arc<Mutex<Book>>,
+    sk: Fr,
 }
 
 impl Server {
     pub fn new(args: EnclaveArgs) -> Self {
-        // let signing_key = SigningKey::random(&mut OsRng);
-
+        let rng = &mut thread_rng();
+        let sk = Fr::rand(rng);
         //debug_print!(
         //    "Server started with public key: {:?}",
         //    signing_key.verifying_key()
@@ -56,6 +64,7 @@ impl Server {
             args,
             execution_guard: Mutex::new(()),
             book: Arc::new(Mutex::new(Book::new())),
+            sk,
         }
     }
 
@@ -134,35 +143,53 @@ impl Server {
             }
             // TODO: implement enclave public key
             EnclaveRequest::GetPublicKey => {
-                todo!()
-                //let public_key = self.get_public_key();
+                let pk = EdwardsProjective::generator() * self.sk;
+                let mut v = vec![];
+                pk.serialize_compressed(&mut v).unwrap();
 
-                //stream
-                //    .send(EnclaveResponse::PublicKey(public_key))
-                //    .await
-                //    .unwrap();
+                stream.send(EnclaveResponse::PublicKey(v)).await.unwrap();
             }
-            EnclaveRequest::AttestSigningKey => {
-                todo!();
-                //match tokio::task::spawn_blocking(move || self.attest_signing_key()).await {
-                //    Ok(response) => {
-                //        stream.send(response).await.unwrap();
-                //    }
-                //    Err(e) => {
-                //        stream
-                //            .send(EnclaveResponse::Error(format!(
-                //                "Join error when attesting signing key: {:?}",
-                //                e
-                //            )))
-                //            .await
-                //            .unwrap();
-                //    }
-                //}
-            }
-            EnclaveRequest::Execute { order } => {
-                let order = serde_json::from_str::<EVMBlobOrder>(&order)
-                    .expect("Failed to deserialize EVMBlobOrder");
-                match tokio::task::spawn_blocking(move || self.execute(order)).await {
+            EnclaveRequest::Decrypt(ciphertext) => {
+                match tokio::task::spawn_blocking(move || {
+                    let Ciphertext {
+                        ciphertext,
+                        nonce,
+                        sender_pk,
+                    } = ciphertext;
+                    // Take the guard to ensure only one execution can be running at a time.
+                    let _guard = self.execution_guard.lock();
+
+                    let sender_pk =
+                        EdwardsProjective::deserialize_compressed(&sender_pk[..]).unwrap();
+                    let dh = sender_pk * self.sk;
+                    let mut v = vec![];
+                    dh.serialize_compressed(&mut v).unwrap();
+
+                    let key = Sha3_256::digest(&v);
+
+                    let cipher = Aes256GcmSiv::new_from_slice(&key).unwrap();
+                    let nonce = Nonce::from_slice(&nonce);
+                    let message = cipher.decrypt(nonce, ciphertext.as_ref()).unwrap();
+                    let order =
+                        serde_json::from_str::<EVMBlobOrder>(&String::from_utf8(message).unwrap())
+                            .unwrap();
+
+                    debug_print!("Matching start");
+                    // TODO: remove this unwrap
+                    let mut order = process_order(order);
+                    let (order_state, taker_fill_amount, _) =
+                        self.book.lock().add_limit_order(&mut order).unwrap();
+                    // let (_, vk) = self.prover.setup(&program);
+                    debug_print!("Matching complete");
+
+                    // TODO: sign this
+                    EnclaveResponse::Result {
+                        order_state,
+                        taker_fill_amount,
+                    }
+                })
+                .await
+                {
                     Ok(response) => {
                         stream.send(response).await.unwrap();
                     }
@@ -177,18 +204,7 @@ impl Server {
                     }
                 }
             }
-            EnclaveRequest::GetEncryptedSigningKey => {
-                stream
-                    .send(EnclaveResponse::Error("Not implemented".to_string()))
-                    .await
-                    .unwrap();
-            }
-            EnclaveRequest::SetSigningKey(_) => {
-                stream
-                    .send(EnclaveResponse::Error("Not implemented".to_string()))
-                    .await
-                    .unwrap();
-            }
+            EnclaveRequest::Execute { order } => {}
             EnclaveRequest::CloseSession => {
                 return ConnectionState::Close;
             }
@@ -216,28 +232,6 @@ impl Server {
     //        .verifying_key()
     //        .to_encoded_point(false)
     //}
-
-    /// Executes a program with the given stdin and program.
-    ///
-    /// Sends a signature over the public values (and the vkey) to the host.
-    fn execute(&self, order: EVMBlobOrder) -> EnclaveResponse {
-        // Take the guard to ensure only one execution can be running at a time.
-        let _guard = self.execution_guard.lock();
-
-        debug_print!("Matching start");
-        // TODO: remove this unwrap
-        let mut order = process_order(order);
-        let (order_state, taker_fill_amount, _) =
-            self.book.lock().add_limit_order(&mut order).unwrap();
-        // let (_, vk) = self.prover.setup(&program);
-        debug_print!("Matching complete");
-
-        // TODO: sign this
-        EnclaveResponse::SignedPublicValues {
-            order_state,
-            taker_fill_amount,
-        }
-    }
 }
 
 pub struct ProcessedEVMBlobOrder {

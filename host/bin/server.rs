@@ -2,13 +2,13 @@ use axum::{
     extract::{rejection::JsonRejection, DefaultBodyLimit, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
     Json, Router,
 };
 use clap::Parser;
 use clients::blob::EVMBlobOrder;
 use std::sync::Arc;
-use teeleaves_common::{EnclaveRequest, EnclaveResponse};
+use teeleaves_common::{Ciphertext, EnclaveRequest, EnclaveResponse};
 use teeleaves_host::server::{self, Server};
 use teeleaves_host::{server::ServerArgs, HostStream};
 use tokio::net::TcpListener;
@@ -22,6 +22,7 @@ async fn main() {
 
     let server = Server::new(&args);
     let app = Router::new()
+        .route("/pk", get(get_pk))
         .route("/execute", post(execute).layer(DefaultBodyLimit::disable()))
         .with_state(server);
 
@@ -47,40 +48,32 @@ async fn main() {
     }
 }
 
+async fn get_pk(State(server): State<Arc<Server>>) -> Vec<u8> {
+    // Open a connection to the enclave.
+    let mut stream = HostStream::new(server.cid, teeleaves_common::ENCLAVE_PORT)
+        .await
+        .unwrap();
+
+    // Send the request to the enclave.
+    stream.send(EnclaveRequest::GetPublicKey).await.unwrap();
+
+    let response = stream.recv().await.unwrap();
+
+    match response {
+        EnclaveResponse::PublicKey(encoded_point) => encoded_point,
+        _ => panic!(),
+    }
+}
+
 /// Execute a program on the enclave.
 ///
 /// In order to avoid OOM in the enclave, we run only one program at a time.
 async fn execute(
     State(server): State<Arc<Server>>,
-    payload: Result<Json<EVMBlobOrder>, JsonRejection>,
+    payload: Result<Json<Ciphertext>, JsonRejection>,
 ) -> Result<StatusCode, ServerError> {
-    let evm_order = match payload {
-        Ok(evm_order) => evm_order,
-        Err(_) => return Ok(StatusCode::UNPROCESSABLE_ENTITY),
-    };
+    let ciphertext = payload.unwrap().0;
 
-    let ret = execute_inner(server.clone(), evm_order.0)
-        .await
-        .map(|res| match res {
-            EnclaveResponse::PublicKey(encoded_point) => todo!(),
-            EnclaveResponse::EncryptedSigningKey(items) => todo!(),
-            EnclaveResponse::SigningKeyAttestation(items) => todo!(),
-            EnclaveResponse::SignedPublicValues {
-                // TODO: log that?
-                order_state,
-                taker_fill_amount,
-            } => return StatusCode::OK,
-            EnclaveResponse::Error(_) => todo!(),
-            EnclaveResponse::Ack => todo!(),
-        });
-
-    ret
-}
-
-async fn execute_inner(
-    server: Arc<Server>,
-    request: EVMBlobOrder,
-) -> Result<EnclaveResponse, ServerError> {
     tracing::info!("Got execution request");
 
     let _guard = server.execution_mutex.lock().await;
@@ -99,9 +92,7 @@ async fn execute_inner(
     tracing::debug!("Successfully connected to enclave");
 
     // Setup the request.
-    let request = EnclaveRequest::Execute {
-        order: serde_json::to_string(&request).unwrap(),
-    };
+    let request = EnclaveRequest::Decrypt(ciphertext);
 
     // Send the request to the enclave.
     let execution_start = std::time::Instant::now();
@@ -133,7 +124,17 @@ async fn execute_inner(
 
     tracing::debug!("Successfully received response from enclave");
 
-    Ok(response)
+    match response {
+        EnclaveResponse::Result {
+            // TODO: log that?
+            order_state,
+            taker_fill_amount,
+        } => {
+            println!("{:?} {}", order_state, taker_fill_amount);
+            return Ok(StatusCode::OK);
+        }
+        _ => panic!(),
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

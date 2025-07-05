@@ -14,6 +14,12 @@ parking_lot = "0.12.3"
 rand_core = "0.6"
 serde_json = { workspace = true }
 
+ark-std = { version = "0.5.0", features = ["parallel"] }
+ark-ff = { version = "0.5.0", features = ["parallel", "asm"] }
+ark-ec = { version = "0.5.0", features = ["parallel"] }
+ark-serialize = "0.5.0"
+ark-curve25519 = "0.5.0"
+aes-gcm-siv = "0.11.1"
 
 # Protocol deps.
 k256 = { workspace = true }
