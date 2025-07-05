@@ -31,6 +31,8 @@ if [ $1 == "terminate" ]; then
   exit 0
 fi
 
+cargo build --release
+
 # Always build the enclave from scratch.
 if [[ $2 == "-f" || $2 == "--debug" ]]; then
   docker build --build-arg DEBUG_MODE=1 -t teeleaves .
