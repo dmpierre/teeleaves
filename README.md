@@ -1,3 +1,7 @@
+<p align="center">
+  <img alt="image" src="https://github.com/user-attachments/assets/cf2072b0-9e35-4591-94e7-a239ec060cd4" width="30%" height="30%" />
+</p>
+
 # TEELeaves
 
 TEELeaves lets you prediction market orderbooks within TEEs. It runs with:
