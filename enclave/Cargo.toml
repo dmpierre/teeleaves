@@ -12,6 +12,8 @@ clients = { workspace = true }
 thiserror = { workspace = true }
 parking_lot = "0.12.3"
 rand_core = "0.6"
+serde_json = { workspace = true }
+
 
 # Protocol deps.
 k256 = { workspace = true }

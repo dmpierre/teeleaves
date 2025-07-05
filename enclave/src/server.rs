@@ -160,6 +160,8 @@ impl Server {
                 //}
             }
             EnclaveRequest::Execute { order } => {
+                let order = serde_json::from_str::<EVMBlobOrder>(&order)
+                    .expect("Failed to deserialize EVMBlobOrder");
                 match tokio::task::spawn_blocking(move || self.execute(order)).await {
                     Ok(response) => {
                         stream.send(response).await.unwrap();

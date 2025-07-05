@@ -99,7 +99,9 @@ async fn execute_inner(
     tracing::debug!("Successfully connected to enclave");
 
     // Setup the request.
-    let request = EnclaveRequest::Execute { order: request };
+    let request = EnclaveRequest::Execute {
+        order: serde_json::to_string(&request).unwrap(),
+    };
 
     // Send the request to the enclave.
     let execution_start = std::time::Instant::now();

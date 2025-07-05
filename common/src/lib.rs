@@ -24,7 +24,7 @@ pub enum EnclaveRequest {
     /// Request the enclave to attest to the signing key.
     AttestSigningKey,
     /// An execution request, sent from the host to the enclave.
-    Execute { order: EVMBlobOrder },
+    Execute { order: String },
     /// Set the enclave's signing key.
     SetSigningKey(Vec<u8>),
     /// Close the session, the enclave will drop the connection after this request.
