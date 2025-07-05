@@ -4,7 +4,7 @@
 
 # TEELeaves
 
-TEELeaves lets you prediction market orderbooks within TEEs. It runs with:
+TEELeaves lets you run a prediction market orderbooks within a Trusted Execution Environment (TEE). It runs with:
 
 1. An open source repo
 2. Verifiable execution - Schnorr signatures over ed2519.
