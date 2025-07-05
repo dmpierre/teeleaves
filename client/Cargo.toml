@@ -1,0 +1,16 @@
+[package]
+name = "teeleaves-client"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "teeleaves-client"
+path = "bin/client.rs"
+
+[dependencies]
+clients = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+clobs = { workspace = true }
+alloy-primitives = "1.0.0"
+rand = "0.9.1"
