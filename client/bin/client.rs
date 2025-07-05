@@ -100,59 +100,69 @@ async fn main() {
     let mut v = vec![];
     dh.serialize_compressed(&mut v).unwrap();
 
-    let order = generate_blob_order(50, 1);
-    let order = serde_json::to_string(&order).unwrap().into_bytes();
+    let ciphertexts = (0..100)
+        .map(|_| {
+            let order = generate_blob_order(50, 1);
+            let order = serde_json::to_string(&order).unwrap().into_bytes();
 
-    let key = Sha3_256::digest(&v);
+            let key = Sha3_256::digest(&v);
 
-    let cipher = Aes256GcmSiv::new_from_slice(&key).unwrap();
-    let nonce = rng.gen::<[u8; 12]>();
-    let nonce = Nonce::from_slice(&nonce);
-    let ciphertext = cipher.encrypt(nonce, order.as_ref()).unwrap();
+            let cipher = Aes256GcmSiv::new_from_slice(&key).unwrap();
+            let nonce = rng.gen::<[u8; 12]>();
+            let nonce = Nonce::from_slice(&nonce);
+            let ciphertext = cipher.encrypt(nonce, order.as_ref()).unwrap();
+            teeleaves_common::Ciphertext {
+                ciphertext: ciphertext.to_vec(),
+                nonce: nonce.to_vec(),
+                sender_ek: {
+                    let mut v = vec![];
+                    ek.serialize_compressed(&mut v).unwrap();
+                    v
+                },
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let mut results = vec![];
 
     let start = Instant::now();
-    let SignedResult {
-        order_state,
-        taker_fill_amount,
-        sig,
-    } = client
-        .post("http://localhost:8080/execute")
-        .json(&teeleaves_common::Ciphertext {
-            ciphertext: ciphertext.to_vec(),
-            nonce: nonce.to_vec(),
-            sender_ek: {
-                let mut v = vec![];
-                ek.serialize_compressed(&mut v).unwrap();
-                v
-            },
-        })
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
+    for ciphertext in &ciphertexts {
+        let res = client
+            .post("http://localhost:8080/execute")
+            .json(&ciphertext)
+            .send()
+            .await;
+        results.push(res);
+    }
 
-    println!("{:?} {:?} {:?}", order_state, taker_fill_amount, sig);
+    let end = start.elapsed();
+    println!("{:?}", end);
 
     let mut pp = Schnorr::<EdwardsProjective, Sha3_256>::setup(rng).unwrap();
     pp.generator = EdwardsAffine::generator();
     pp.salt = [0u8; 32];
 
-    assert!(Schnorr::verify(
-        &pp,
-        &enclave_vk.into_affine(),
-        &[&[order_state as u8][..], &taker_fill_amount.to_le_bytes()].concat(),
-        {
-            let sig = <[Fr; 2]>::deserialize_compressed(&sig[..]).unwrap();
-            &Signature {
-                prover_response: sig[0],
-                verifier_challenge: sig[1],
-            }
-        },
-    )
-    .unwrap());
-
+    for res in results {
+        let SignedResult {
+            order_state,
+            taker_fill_amount,
+            sig,
+        } = res.unwrap().json().await.unwrap();
+        println!("{:?} {}", order_state, taker_fill_amount);
+        assert!(Schnorr::verify(
+            &pp,
+            &enclave_vk.into_affine(),
+            &[&[order_state as u8][..], &taker_fill_amount.to_le_bytes()].concat(),
+            {
+                let sig = <[Fr; 2]>::deserialize_compressed(&sig[..]).unwrap();
+                &Signature {
+                    prover_response: sig[0],
+                    verifier_challenge: sig[1],
+                }
+            },
+        )
+        .unwrap());
+    }
     let attestation = client
         .get("http://localhost:8080/attestation")
         .send()
@@ -161,5 +171,5 @@ async fn main() {
         .bytes()
         .await
         .expect("Failed to read response bytes");
-    println!("{:?}", AttestationDoc::from_binary(&attestation).unwrap());
+    println!("{:?}", attestation_doc_validation::validate_and_parse_attestation_doc(&attestation).unwrap());
 }

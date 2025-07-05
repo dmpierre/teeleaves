@@ -27,3 +27,5 @@ aes-gcm-siv = "0.11.1"
 sha3 = "0.10.8"
 
 aws-nitro-enclaves-nsm-api = { workspace = true }
+
+attestation-doc-validation = "0.10.0"
