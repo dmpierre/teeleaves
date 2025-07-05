@@ -1,0 +1,34 @@
+[workspace]
+members = ["host", "common", "enclave"]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+
+[workspace.dependencies]
+# TODO:remove this local dep
+clients = { git = "https://github.com/dmpierre/rust-clob" }
+clobs = { git = "https://github.com/dmpierre/rust-clob" }
+servers = { git = "https://github.com/dmpierre/rust-clob" }
+# teeleaves-enclave = { path = "./enclave" }
+teeleaves-host = { path = "./host" }
+teeleaves-common = { path = "./common" }
+tokio-vsock = "0.7"
+tokio = { version = "1.4", features = ["full"] }
+bincode = "1.3.3"
+thiserror = "1.0"
+clap = { version = "4.5.30", features = ["derive"] }
+k256 = { version = "0.13.4", features = ["serde"] }
+aws-nitro-enclaves-nsm-api = "0.4.0"
+tracing = "0.1.41"
+serde = { version = "1.0.195", features = ["derive"] }
+serde_json = { version = "1.0.140" }
+libc = "0.2.158"
+bytes = "1.3.0"
+futures = { version = "0.3.31" }
+axum = { version = "0.8.1" }
+
+# Alerts
+alert-subscriber = { git = "https://github.com/succinctlabs/alert-subscriber.git", branch = "main" }
+

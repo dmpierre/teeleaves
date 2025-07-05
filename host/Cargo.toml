@@ -1,0 +1,39 @@
+[package]
+name = "teeleaves-host"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "teeleaves-server"
+path = "bin/server.rs"
+
+[dependencies]
+teeleaves-common = { workspace = true }
+clients = { workspace = true }
+clobs = { workspace = true }
+tokio-vsock = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+k256 = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+alert-subscriber = { workspace = true }
+hex = "0.4.3"
+axum = { version = "0.8.1" }
+alloy-primitives = "1.0.0"
+
+# Attestation Helpers
+aws-nitro-enclaves-cose = { version = "0.5" }
+aws-nitro-enclaves-nsm-api = { workspace = true }
+aws-config = { version = "=1.5.17" }
+aws-sdk-s3 = { version = "=1.77.0" }
+attestation-doc-validation = { version = "0.10.0" }
+futures = { version = "0.3.31" }
+
+# SDK Helpers
+tonic = { version = "0.12", features = ["tls", "tls-roots"] }
+bincode.workspace = true
+serde_json = "1.0.140"
+lazy_static = "1.5.0"
