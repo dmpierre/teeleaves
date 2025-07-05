@@ -48,7 +48,7 @@ pub struct ServerArgs {
     pub enclave_memory: u32,
 
     /// Run the enclave in debug mode.
-    #[clap(short, long)]
+    #[clap(short, long, default_value = "1")]
     pub debug: bool,
 }
 
