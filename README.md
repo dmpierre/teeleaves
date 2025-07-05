@@ -4,7 +4,7 @@
 
 # TEELeaves
 
-TEELeaves lets you run a prediction market orderbooks within a Trusted Execution Environment (TEE). It runs with:
+TEELeaves lets you run a prediction market orderbook within a Trusted Execution Environment (TEE). It runs with:
 
 1. An open source repo
 2. Verifiable execution - Schnorr signatures over ed2519.
@@ -12,10 +12,12 @@ TEELeaves lets you run a prediction market orderbooks within a Trusted Execution
 
 ## Usage
 
-Upload/clone repo on a beefy aws machine with nitro enclaves enabled. We recommend an ec2 instance with 16Gb RAM and 16 cores, e.g. `c5.4xlarge`. This code has been tested with an aws Nitro Enclave equipped with 8Gb of RAM and 4 cores. Before using, ensure that the host has been setup correctly with `scripts/install-host.sh`. Then:
+Upload/clone repo on a beefy aws machine with nitro enclaves enabled. We recommend an ec2 instance with 32Gb RAM and 16 cores, e.g. `c5.4xlarge`. This code has been tested with an aws nitro enclave equipped with 8Gb of RAM and 4 cores. 
+
+Before using, ensure that the host has been setup correctly with `scripts/install-host.sh`. Then:
 
 1. Start the server with `cargo run --bin teeleaves-server`
-2. Run the client calling the server and enclave with `cargo run --bin teeleaves-client`
+2. Run the client `cargo run --bin teeleaves-client`, this will call the server which will route order execution to the enclave.
 
 ## Acknowledgements
 
