@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="image" src="https://github.com/user-attachments/assets/cf2072b0-9e35-4591-94e7-a239ec060cd4" width="30%" height="30%" />
+  <img alt="image" src="https://github.com/user-attachments/assets/cf2072b0-9e35-4591-94e7-a239ec060cd4" width="40%" />
 </p>
 
 # TEELeaves
